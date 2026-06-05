@@ -48,8 +48,15 @@ export class BootScene extends Phaser.Scene {
     this.load.audio("sfx_click", ["audio/sfx/click.ogg"]);
     this.load.audio("sfx_confirm", ["audio/sfx/confirm.ogg"]);
     this.load.audio("sfx_beep", ["audio/sfx/beep.ogg"]);
-    this.load.audio("music_race", ["audio/music/race.ogg"]);
     this.load.audio("music_lobby", ["audio/music/lobby.ogg"]);
+    // race music pool — one is picked at random per race (see RaceScene)
+    this.load.audio("music_race", ["audio/music/race.ogg"]);
+    this.load.audio("music_race_time", ["audio/music/race_time_driving.ogg"]);
+    this.load.audio("music_race_alpha", ["audio/music/race_alpha_dance.ogg"]);
+    this.load.audio("music_race_cadet", ["audio/music/race_space_cadet.ogg"]);
+    this.load.audio("music_race_mission", ["audio/music/race_mission_plausible.ogg"]);
+    this.load.audio("music_race_descent", ["audio/music/race_infinite_descent.ogg"]);
+    this.load.audio("music_race_drums", ["audio/music/race_drumming_sticks.ogg"]);
   }
 
   create(): void {

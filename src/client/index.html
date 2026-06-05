@@ -92,6 +92,16 @@
       .standings .pos { font-weight: 800; color: var(--accent2); width: 28px; }
       .standings .t { margin-left: auto; font-family: monospace; color: var(--muted); }
       .err { color: #ff6b6b; font-size: 13px; margin-top: 10px; min-height: 16px; }
+
+      input[type="range"] {
+        width: 100%; margin: 8px 0 2px; accent-color: var(--accent); cursor: pointer;
+      }
+      .check {
+        display: flex; align-items: center; gap: 8px; margin-top: 14px;
+        color: var(--text); font-size: 14px; text-transform: none; letter-spacing: 0;
+        cursor: pointer;
+      }
+      .check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
     </style>
   </head>
   <body>
@@ -118,7 +128,7 @@
         <div class="err" id="menuErr"></div>
         <p class="hint">
           Drive: <b>↑/W</b> gas · <b>↓/S</b> brake · <b>←→/AD</b> steer ·
-          <b>SPACE</b> handbrake (drift!) · <b>M</b> mute.
+          <b>SPACE</b> handbrake (drift!) · <b>Esc</b> pause · <b>M</b> mute engine.
         </p>
       </div>
 
@@ -141,6 +151,18 @@
         <ul class="standings" id="standings"></ul>
         <button class="btn primary" id="newRaceBtn">NEW RACE (new track)</button>
         <p class="hint" id="resultsHint">Waiting for the host to start a new race…</p>
+      </div>
+
+      <!-- PAUSE (local only — multiplayer keeps running) -->
+      <div id="pause" class="panel hidden">
+        <h1 style="font-size:30px">PAUSED</h1>
+        <p class="tagline">the race keeps running for everyone else</p>
+        <label for="vol">Music volume</label>
+        <input id="vol" type="range" min="0" max="100" value="50" />
+        <label class="check"><input id="muteMusic" type="checkbox" /> Mute music</label>
+        <button class="btn primary" id="resumeBtn">RESUME</button>
+        <button class="btn ghost" id="quitBtn">QUIT TO MENU</button>
+        <p class="hint">Press <b>Esc</b> to resume · <b>M</b> mutes engine sound.</p>
       </div>
     </div>
 

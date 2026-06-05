@@ -2,12 +2,34 @@ import Phaser from "phaser";
 import { net } from "../net";
 import { EngineAudio } from "../audio";
 import { generateTrack, nearestOnTrack, type Track } from "../../shared/track";
+import { generateObstacles } from "../../shared/obstacles";
 import { RNG } from "../../shared/rng";
 import { Surface } from "../../shared/surfaces";
 import { CAR, DRIFT } from "../../shared/constants";
 import type { CarSchema } from "../../shared/schema";
+import { settings, musicGain } from "../settings";
 
 const KMH = 0.4; // px/s -> displayed km/h
+
+// race music pool — a track is chosen at random (seeded) per race
+const RACE_MUSIC = [
+  "music_race",
+  "music_race_time",
+  "music_race_alpha",
+  "music_race_cadet",
+  "music_race_mission",
+  "music_race_descent",
+  "music_race_drums",
+] as const;
+
+// minimap dot colours per car colour
+const CAR_DOT: Record<string, number> = {
+  red: 0xd63a3a,
+  blue: 0x3a76d6,
+  green: 0x41a85a,
+  yellow: 0xe3c133,
+  black: 0xcfd4de,
+};
 
 const ROAD_TEX: Record<number, string> = {
   [Surface.Tarmac]: "road_asphalt",
@@ -54,6 +76,8 @@ export class RaceScene extends Phaser.Scene {
   private engine?: EngineAudio;
   private music?: Phaser.Sound.BaseSound;
   private musicKey = "";
+  /** race track picked for the current race seed */
+  private raceMusicKey: string = RACE_MUSIC[0];
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
@@ -70,6 +94,16 @@ export class RaceScene extends Phaser.Scene {
   private board!: Phaser.GameObjects.Text;
   private bigText!: Phaser.GameObjects.Text;
   private prevCountInt = -1;
+
+  // minimap
+  private miniBg!: Phaser.GameObjects.Graphics;
+  private miniDots!: Phaser.GameObjects.Graphics;
+  private static readonly MINI = 188; // box size (px)
+  private miniBoxX = 0;
+  private miniBoxY = 0;
+  private miniScale = 1;
+  private miniOffX = 0; // centering offset inside the box
+  private miniOffY = 0;
 
   constructor() {
     super("race");
@@ -119,6 +153,10 @@ export class RaceScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-M", () => this.engine?.setMuted(!this.engine.isMuted()));
 
     this.buildHud();
+
+    // minimap layers (static track outline + per-frame car dots)
+    this.miniBg = this.add.graphics().setScrollFactor(0).setDepth(95).setVisible(false);
+    this.miniDots = this.add.graphics().setScrollFactor(0).setDepth(97).setVisible(false);
 
     // audio engine shares Phaser's WebAudio context
     const ctx = (this.sound as unknown as { context?: AudioContext }).context;
@@ -185,6 +223,11 @@ export class RaceScene extends Phaser.Scene {
     this.placeDecorations();
 
     this.cameras.main.setBounds(t.minX, t.minY, w, h);
+
+    // pick a race track for this race (seeded => stable per track, varies per race)
+    this.raceMusicKey = RACE_MUSIC[new RNG((seed ^ 0x51a7) >>> 0).int(0, RACE_MUSIC.length - 1)];
+
+    this.buildMinimap();
   }
 
   private bakeStartLine(rt: Phaser.GameObjects.RenderTexture, RES: number): void {
@@ -210,48 +253,11 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private placeDecorations(): void {
-    const t = this.track!;
-    const rng = new RNG((this.seed ^ 0x9e37) >>> 0);
-    const pts = t.points;
-    const m = pts.length;
-
-    const place = (x: number, y: number, key: string, scale: number, depth: number) => {
-      const obj = this.add.image(x, y, key).setScale(scale);
-      obj.setRotation(rng.range(0, Math.PI * 2));
-      obj.setDepth(depth);
+    // shared with the server's collision model, so what you see is what's solid
+    for (const o of generateObstacles(this.track!, this.seed)) {
+      const obj = this.add.image(o.x, o.y, o.type).setScale(o.scale);
+      obj.setRotation(o.rot).setDepth(o.depth);
       (obj as any).__world = true;
-    };
-
-    for (let i = 4; i < m; i += 4) {
-      const p = pts[i];
-      // curvature: how much the heading turns across this point
-      const before = pts[(i - 3 + m) % m].angle;
-      const after = pts[(i + 3) % m].angle;
-      let dA = after - before;
-      while (dA > Math.PI) dA -= Math.PI * 2;
-      while (dA < -Math.PI) dA += Math.PI * 2;
-      const corner = Math.abs(dA) > 0.35;
-
-      // line the OUTSIDE of sharp corners with tyre stacks / barriers (rally feel)
-      if (corner) {
-        const outSide = dA > 0 ? -1 : 1; // outside of the turn
-        const px = -Math.sin(p.angle) * outSide;
-        const py = Math.cos(p.angle) * outSide;
-        const off = p.halfWidth + 26;
-        const key = rng.next() < 0.5 ? "tires" : "barrier_white";
-        place(p.x + px * off, p.y + py * off, key, 0.55, 3);
-        continue;
-      }
-
-      // scatter trees & rocks well clear of the road on straights
-      if (rng.next() > 0.6) continue;
-      const side = rng.next() < 0.5 ? 1 : -1;
-      const px = -Math.sin(p.angle) * side;
-      const py = Math.cos(p.angle) * side;
-      const off = p.halfWidth + rng.range(70, 240);
-      const r = rng.next();
-      if (r < 0.6) place(p.x + px * off, p.y + py * off, "tree", rng.range(0.6, 0.95), 7);
-      else place(p.x + px * off, p.y + py * off, "rock", rng.range(0.45, 0.75), 2);
     }
   }
 
@@ -405,11 +411,79 @@ export class RaceScene extends Phaser.Scene {
       }
       const sp = net.state?.players.get(net.sessionId);
       const speed = sp ? Math.hypot(sp.vx, sp.vy) : 0;
-      const targetZoom = Phaser.Math.Linear(1.15, 0.92, Phaser.Math.Clamp(speed / CAR.maxSpeed, 0, 1));
+      // zoomed further out so the road ahead and rivals stay on-screen
+      const targetZoom = Phaser.Math.Linear(0.78, 0.58, Phaser.Math.Clamp(speed / CAR.maxSpeed, 0, 1));
       cam.setZoom(Phaser.Math.Linear(cam.zoom, targetZoom, 0.04));
     } else if (this.track) {
       cam.centerOn(this.track.points[0].x, this.track.points[0].y);
     }
+  }
+
+  // ---- minimap ------------------------------------------------------------
+
+  private worldToMini(x: number, y: number): { x: number; y: number } {
+    const t = this.track!;
+    return {
+      x: this.miniBoxX + this.miniOffX + (x - t.minX) * this.miniScale,
+      y: this.miniBoxY + this.miniOffY + (y - t.minY) * this.miniScale,
+    };
+  }
+
+  /** Lay out the minimap box (bottom-right) and bake the static track outline. */
+  private buildMinimap(): void {
+    if (!this.track || !this.miniBg) return;
+    const t = this.track;
+    const SIZE = RaceScene.MINI;
+    const pad = 12;
+    const inner = SIZE - pad * 2;
+    const worldW = t.maxX - t.minX;
+    const worldH = t.maxY - t.minY;
+    this.miniScale = inner / Math.max(worldW, worldH);
+    this.miniOffX = pad + (inner - worldW * this.miniScale) / 2;
+    this.miniOffY = pad + (inner - worldH * this.miniScale) / 2;
+    this.miniBoxX = this.scale.width - SIZE - 16;
+    this.miniBoxY = this.scale.height - SIZE - 16;
+
+    const g = this.miniBg;
+    g.clear();
+    // panel
+    g.fillStyle(0x14161c, 0.7);
+    g.fillRoundedRect(this.miniBoxX, this.miniBoxY, SIZE, SIZE, 8);
+    g.lineStyle(1, 0x3a4152, 0.9);
+    g.strokeRoundedRect(this.miniBoxX, this.miniBoxY, SIZE, SIZE, 8);
+
+    // track centerline as a closed loop
+    g.lineStyle(3, 0xffffff, 0.55);
+    g.beginPath();
+    const pts = t.points;
+    const first = this.worldToMini(pts[0].x, pts[0].y);
+    g.moveTo(first.x, first.y);
+    for (let i = 1; i < pts.length; i++) {
+      const p = this.worldToMini(pts[i].x, pts[i].y);
+      g.lineTo(p.x, p.y);
+    }
+    g.closePath();
+    g.strokePath();
+
+    // start/finish marker
+    g.fillStyle(0xffe066, 1);
+    g.fillCircle(first.x, first.y, 3.5);
+  }
+
+  private drawMiniDots(state: NonNullable<typeof net.state>): void {
+    if (!this.track) return;
+    const g = this.miniDots;
+    g.clear();
+    state.players.forEach((car, id) => {
+      const p = this.worldToMini(car.x, car.y);
+      const local = id === net.sessionId;
+      g.fillStyle(CAR_DOT[car.color] ?? 0xffffff, 1);
+      g.fillCircle(p.x, p.y, local ? 4.5 : 3);
+      if (local) {
+        g.lineStyle(1.5, 0xffffff, 1);
+        g.strokeCircle(p.x, p.y, 5.5);
+      }
+    });
   }
 
   // ---- audio --------------------------------------------------------------
@@ -433,16 +507,20 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private updateMusic(phase: string): void {
-    const want = phase === "lobby" ? "music_lobby" : "music_race";
-    if (this.musicKey === want) return;
-    if (this.sound.locked) return;
-    this.music?.stop();
-    try {
-      this.music = this.sound.add(want, { loop: true, volume: 0.32 });
-      this.music.play();
-      this.musicKey = want;
-    } catch {
-      /* not unlocked yet */
+    const want = phase === "lobby" ? "music_lobby" : this.raceMusicKey;
+    if (this.musicKey !== want && !this.sound.locked) {
+      this.music?.stop();
+      try {
+        this.music = this.sound.add(want, { loop: true, volume: musicGain() });
+        this.music.play();
+        this.musicKey = want;
+      } catch {
+        /* not unlocked yet */
+      }
+    }
+    // live-apply pause-menu volume / mute
+    if (this.music && "setVolume" in this.music) {
+      (this.music as Phaser.Sound.WebAudioSound).setVolume(musicGain());
     }
   }
 
@@ -451,6 +529,16 @@ export class RaceScene extends Phaser.Scene {
   private localThrottle = 0;
 
   private sendInput(time: number): void {
+    // local pause: stop driving (the race keeps running for everyone else)
+    if (settings.paused) {
+      this.localThrottle = 0;
+      if (this.lastPayload !== "0|0|0") {
+        net.sendInput({ throttle: 0, steer: 0, handbrake: false });
+        this.lastPayload = "0|0|0";
+        this.lastSent = time;
+      }
+      return;
+    }
     let throttle = 0;
     let steer = 0;
     if (this.cursors.up.isDown || this.keys.W.isDown) throttle += 1;
@@ -549,6 +637,7 @@ export class RaceScene extends Phaser.Scene {
     this.timeText.setPosition(w / 2 - 60, 16);
     this.board.setPosition(w - 230, 16);
     this.bigText.setPosition(w / 2, h / 2);
+    this.buildMinimap(); // reposition + rebake for the new size
   }
 
   private updateHud(state: NonNullable<typeof net.state>, time: number): void {
@@ -560,6 +649,9 @@ export class RaceScene extends Phaser.Scene {
     this.surfText.setVisible(show);
     this.timeText.setVisible(show);
     this.board.setVisible(show);
+    this.miniBg.setVisible(show);
+    this.miniDots.setVisible(show);
+    if (show) this.drawMiniDots(state);
 
     const me = state.players.get(net.sessionId);
     if (me) {

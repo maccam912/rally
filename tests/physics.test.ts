@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   stepCar,
   resolveCarCollision,
+  resolveObstacleCollision,
   type CarBody,
   type CarInput,
 } from "@shared/physics";
@@ -97,5 +98,34 @@ describe("resolveCarCollision", () => {
     const before = Math.abs(b.spin);
     for (let i = 0; i < 60; i++) stepCar(b, input(), Surface.Tarmac, 1 / 60);
     expect(Math.abs(b.spin)).toBeLessThan(before);
+  });
+});
+
+describe("resolveObstacleCollision", () => {
+  it("does nothing when the car isn't touching the obstacle", () => {
+    const car: CarBody = { x: 0, y: 0, angle: 0, vx: 300, vy: 0, slip: 0, spin: 0, yaw: 0 };
+    expect(resolveObstacleCollision(car, 500, 0, 20)).toBe(0);
+    expect(car.x).toBe(0);
+    expect(car.vx).toBe(300);
+  });
+
+  it("stops/deflects a head-on hit and pushes the car clear", () => {
+    // car at x=20 driving +x into an obstacle centred at x=50, r=14 (minDist=40)
+    const car: CarBody = { x: 20, y: 0, angle: 0, vx: 300, vy: 0, slip: 0, spin: 0, yaw: 0 };
+    const intensity = resolveObstacleCollision(car, 50, 0, 14);
+    expect(intensity).toBeGreaterThan(0);
+    // bounced back the other way (no longer driving into it)
+    expect(car.vx).toBeLessThan(0);
+    // and is no longer overlapping the obstacle
+    expect(Math.hypot(car.x - 50, car.y - 0)).toBeGreaterThanOrEqual(40 - 1e-3);
+  });
+
+  it("a glancing hit scrubs speed and imparts spin", () => {
+    // approach offset on y so the contact normal is angled -> tangential scrape
+    const car: CarBody = { x: 0, y: 12, angle: 0, vx: 320, vy: 0, slip: 0, spin: 0, yaw: 0 };
+    const speedBefore = Math.hypot(car.vx, car.vy);
+    resolveObstacleCollision(car, 34, 0, 14); // minDist = 40, dist = ~36 -> overlap
+    expect(Math.hypot(car.vx, car.vy)).toBeLessThan(speedBefore);
+    expect(Math.abs(car.spin)).toBeGreaterThan(0);
   });
 });

@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene";
 import { RaceScene } from "./scenes/RaceScene";
 import { net } from "./net";
+import { settings, saveSettings } from "./settings";
 import { CAR_COLORS } from "../shared/constants";
 import type { GameState } from "../shared/schema";
 
@@ -14,7 +15,7 @@ const COLOR_HEX: Record<string, string> = {
 };
 
 // ---- Phaser ----------------------------------------------------------------
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: "game",
   width: 1280,
@@ -22,6 +23,22 @@ new Phaser.Game({
   backgroundColor: "#14161c",
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: [BootScene, RaceScene],
+});
+
+// Phaser captures WASD/Space/arrows globally (preventDefault), which otherwise
+// swallows keystrokes in the name / party-code inputs. Pause its keyboard while
+// any text field is focused so typing works normally.
+function setGameKeyboard(on: boolean): void {
+  const kb = (game.input as unknown as { keyboard?: { enabled: boolean } }).keyboard;
+  if (kb) kb.enabled = on;
+}
+document.addEventListener("focusin", (e) => {
+  const el = e.target as HTMLElement;
+  if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) setGameKeyboard(false);
+});
+document.addEventListener("focusout", (e) => {
+  const el = e.target as HTMLElement;
+  if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) setGameKeyboard(true);
 });
 
 // ---- DOM refs --------------------------------------------------------------
@@ -40,6 +57,9 @@ const lobbyCode = $("lobbyCode");
 const standings = $("standings");
 const newRaceBtn = $<HTMLButtonElement>("newRaceBtn");
 const resultsHint = $("resultsHint");
+const pausePanel = $("pause");
+const volSlider = $<HTMLInputElement>("vol");
+const muteMusic = $<HTMLInputElement>("muteMusic");
 
 let selectedColor = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
 let joined = false;
@@ -84,6 +104,7 @@ async function join(code: string): Promise<void> {
     room.onStateChange((state) => render(state));
     room.onLeave(() => {
       joined = false;
+      setPaused(false);
       show("menu");
       menuErr.textContent = "Disconnected from the race.";
     });
@@ -112,6 +133,41 @@ $("copyLink").onclick = () => {
 startBtn.onclick = () => net.startRace();
 newRaceBtn.onclick = () => net.restart();
 
+// ---- pause menu (local only) -----------------------------------------------
+volSlider.value = String(Math.round(settings.musicVolume * 100));
+muteMusic.checked = settings.musicMuted;
+volSlider.oninput = () => {
+  settings.musicVolume = Number(volSlider.value) / 100;
+  settings.musicMuted = false;
+  muteMusic.checked = false;
+  saveSettings();
+};
+muteMusic.onchange = () => {
+  settings.musicMuted = muteMusic.checked;
+  saveSettings();
+};
+
+function setPaused(on: boolean): void {
+  settings.paused = on;
+  pausePanel.classList.toggle("hidden", !on);
+}
+$("resumeBtn").onclick = () => setPaused(false);
+$("quitBtn").onclick = () => {
+  setPaused(false);
+  net.room?.leave();
+};
+
+// Esc toggles the pause menu, but only mid-race (lobby/results use their own UI)
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const active = document.activeElement as HTMLElement | null;
+  if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+  if (lastPhase === "racing" || lastPhase === "countdown") {
+    e.preventDefault();
+    setPaused(!settings.paused);
+  }
+});
+
 // ---- overlay rendering -----------------------------------------------------
 function show(which: "menu" | "lobby" | "results" | "none"): void {
   menu.classList.toggle("hidden", which !== "menu");
@@ -123,6 +179,9 @@ let lastPhase = "";
 function render(state: GameState): void {
   if (!joined || !state.players) return;
   const phase = state.phase;
+
+  // pause only makes sense mid-race; clear it on any other phase
+  if (phase !== "racing" && phase !== "countdown" && settings.paused) setPaused(false);
 
   if (phase === "lobby") {
     show("lobby");

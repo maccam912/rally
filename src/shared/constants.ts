@@ -24,6 +24,9 @@ export const CAR = {
   pitSpin: 0.5, // scale of collision-induced spin (PIT maneuver strength)
   spinDamp: 2.6, // per-second decay of collision spin
   length: 64, // sprite length for rendering scale reference
+  // car-vs-scenery (trees/rocks/barriers/cones) — immovable circle obstacles
+  obstacleRestitution: 0.35, // how much a head-on hit bounces back (vs. stops)
+  obstacleFriction: 0.85, // tangential scrub when scraping along an obstacle
 } as const;
 
 // ---- Drift / effect thresholds --------------------------------------------

@@ -180,6 +180,66 @@ export function resolveCarCollision(a: CarBody, b: CarBody): number {
   return Math.abs(velAlongN);
 }
 
+/** Resolve a car hitting a static, immovable circular obstacle (tree, rock,
+ * barrier, cone, tyre stack). The car is pushed out and its normal velocity
+ * reflected (so a head-on hit mostly stops it, a glancing one deflects + spins
+ * it). Returns the impact intensity (>= 0; 0 if not touching / separating) for
+ * sound + particle feedback. Mutates the car only. */
+export function resolveObstacleCollision(
+  car: CarBody,
+  ox: number,
+  oy: number,
+  oradius: number,
+): number {
+  const dx = car.x - ox;
+  const dy = car.y - oy;
+  let dist = Math.hypot(dx, dy);
+  const minDist = CAR.radius + oradius;
+  if (dist >= minDist) return 0;
+
+  let nx: number;
+  let ny: number;
+  if (dist < 1e-4) {
+    // dead-centre overlap — shove back the way the car came in
+    const sp = Math.hypot(car.vx, car.vy);
+    if (sp > 1e-3) {
+      nx = -car.vx / sp;
+      ny = -car.vy / sp;
+    } else {
+      nx = 1;
+      ny = 0;
+    }
+  } else {
+    nx = dx / dist;
+    ny = dy / dist;
+  }
+
+  // push fully clear of the obstacle (it never moves)
+  car.x = ox + nx * minDist;
+  car.y = oy + ny * minDist;
+
+  // normal velocity (negative = driving into the obstacle)
+  const velAlongN = car.vx * nx + car.vy * ny;
+  if (velAlongN >= 0) return 0; // resting against / leaving it
+
+  // reflect the normal component → bounce back / stop
+  const jn = -(1 + CAR.obstacleRestitution) * velAlongN; // > 0
+  car.vx += jn * nx;
+  car.vy += jn * ny;
+
+  // tangential (Coulomb) friction scrubs sideways speed and whips the car round
+  const tx = -ny;
+  const ty = nx;
+  const vt = car.vx * tx + car.vy * ty;
+  const maxFric = CAR.obstacleFriction * jn;
+  const jt = clamp(-vt, -maxFric, maxFric);
+  car.vx += jt * tx;
+  car.vy += jt * ty;
+  car.spin -= ((CAR.radius * jt) / CAR.inertia) * CAR.pitSpin;
+
+  return Math.abs(velAlongN);
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }

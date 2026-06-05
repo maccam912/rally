@@ -131,6 +131,37 @@ describe("RaceSimulation — full race playthrough", () => {
   });
 });
 
+describe("RaceSimulation — solid scenery", () => {
+  it("won't let a car drive through an obstacle", () => {
+    const sim = new RaceSimulation(undefined, 1);
+    sim.addPlayer("a");
+    sim.startRace("a");
+    for (let i = 0; i < 60 * 4; i++) sim.tick(DT); // into racing
+    expect(sim.obstacles.length).toBeGreaterThan(0);
+
+    const o = sim.obstacles[0];
+    const minDist = 26 /* CAR.radius */ + o.radius;
+    const car = sim.state.players.get("a")!;
+    // line the car up just clear of the obstacle, charging straight at it
+    car.x = o.x - (minDist + 6);
+    car.y = o.y;
+    car.angle = 0;
+    car.vx = 600;
+    car.vy = 0;
+    car.resetFlash = 0;
+
+    let minSeen = Infinity;
+    for (let i = 0; i < 30; i++) {
+      sim.setInput("a", { throttle: 1, steer: 0, handbrake: false });
+      sim.tick(DT);
+      minSeen = Math.min(minSeen, Math.hypot(car.x - o.x, car.y - o.y));
+    }
+    // never penetrated the obstacle, and never tunnelled out the far side
+    expect(minSeen).toBeGreaterThanOrEqual(minDist - 2);
+    expect(car.x).toBeLessThan(o.x);
+  });
+});
+
 describe("RaceSimulation — reset rules", () => {
   it("respawns a car that drives way off the road", () => {
     const sim = new RaceSimulation(undefined, 1);

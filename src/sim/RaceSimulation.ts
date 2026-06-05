@@ -2,6 +2,7 @@ import { GameState, CarSchema, type Phase } from "../shared/schema";
 import {
   stepCar,
   resolveCarCollision,
+  resolveObstacleCollision,
   ZERO_INPUT,
   type CarInput,
 } from "../shared/physics";
@@ -11,6 +12,7 @@ import {
   startGrid,
   type Track,
 } from "../shared/track";
+import { generateObstacles, type Obstacle } from "../shared/obstacles";
 import { Surface } from "../shared/surfaces";
 import { CAR, RESET, RACE, CAR_COLORS } from "../shared/constants";
 import { randomSeed } from "../shared/rng";
@@ -41,6 +43,8 @@ export interface CollisionEvent {
 export class RaceSimulation {
   readonly state: GameState;
   track: Track;
+  /** solid scenery, regenerated with the track (deterministic from the seed) */
+  obstacles: Obstacle[];
   private rt = new Map<string, Runtime>();
   private joinCounter = 0;
   /** transient per-tick collision events for the client (sound/particles) */
@@ -51,6 +55,7 @@ export class RaceSimulation {
     const s = seed ?? randomSeed();
     this.state.seed = s;
     this.track = generateTrack(s);
+    this.obstacles = generateObstacles(this.track, s);
     this.state.trackLength = this.track.length;
     this.state.totalLaps = RACE.defaultLaps;
     this.state.phase = "lobby";
@@ -148,6 +153,7 @@ export class RaceSimulation {
     const s = randomSeed();
     this.state.seed = s;
     this.track = generateTrack(s);
+    this.obstacles = generateObstacles(this.track, s);
     this.state.trackLength = this.track.length;
     this.resetRaceState();
     this.state.phase = "lobby";
@@ -255,7 +261,10 @@ export class RaceSimulation {
     // 2. car-to-car collisions (pairwise)
     this.resolveCollisions();
 
-    // 3. ranking + finish detection
+    // 3. car-vs-scenery collisions (solid obstacles)
+    this.resolveObstacleHits();
+
+    // 4. ranking + finish detection
     this.updateRanking();
     this.checkFinish(dt);
   }
@@ -361,6 +370,22 @@ export class RaceSimulation {
             y: (a.y + b.y) / 2,
             intensity,
           });
+        }
+      }
+    }
+  }
+
+  /** Push cars out of solid scenery and bounce/spin them off it. */
+  private resolveObstacleHits(): void {
+    for (const [, car] of this.state.players) {
+      if (car.finished || car.resetFlash > 0) continue; // skip during respawn grace
+      for (const o of this.obstacles) {
+        const reach = CAR.radius + o.radius;
+        if (Math.abs(car.x - o.x) > reach || Math.abs(car.y - o.y) > reach) continue;
+        const intensity = resolveObstacleCollision(car, o.x, o.y, o.radius);
+        if (intensity > 30) {
+          car.bump = Math.max(car.bump, intensity);
+          this.collisions.push({ x: o.x, y: o.y, intensity });
         }
       }
     }
