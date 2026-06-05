@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RALLY — top-down drift racing</title>
+    <style>
+      :root {
+        --bg: #14161c;
+        --panel: #1f232e;
+        --accent: #ff7a3c;
+        --accent2: #ffd166;
+        --text: #f2f4f8;
+        --muted: #9aa3b2;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; height: 100%; background: var(--bg); color: var(--text);
+        font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden;
+      }
+      #game { position: absolute; inset: 0; }
+      #game canvas { display: block; }
+
+      #overlay {
+        position: absolute; inset: 0; display: flex; align-items: center;
+        justify-content: center; pointer-events: none; z-index: 10;
+      }
+      .panel {
+        pointer-events: auto; background: rgba(31,35,46,0.96);
+        border: 1px solid #313749; border-radius: 14px; padding: 28px 32px;
+        width: min(440px, 92vw); box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+        backdrop-filter: blur(3px);
+      }
+      .panel.wide { width: min(560px, 94vw); }
+      .hidden { display: none !important; }
+
+      h1 {
+        margin: 0 0 2px; font-size: 44px; letter-spacing: 6px;
+        font-family: "Consolas", monospace; font-weight: 800;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .tagline { margin: 0 0 22px; color: var(--muted); font-size: 14px; letter-spacing: 1px; }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px;
+        text-transform: uppercase; letter-spacing: 1px; }
+      input[type="text"] {
+        width: 100%; padding: 11px 13px; border-radius: 9px; border: 1px solid #39405230;
+        background: #11141b; color: var(--text); font-size: 15px; border: 1px solid #2c3344;
+      }
+      input:focus { outline: 2px solid var(--accent); }
+
+      .colors { display: flex; gap: 10px; }
+      .swatch {
+        width: 40px; height: 40px; border-radius: 9px; border: 3px solid transparent;
+        cursor: pointer; transition: transform .08s; padding: 0;
+      }
+      .swatch:hover { transform: translateY(-2px); }
+      .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+
+      .btn {
+        display: block; width: 100%; margin-top: 12px; padding: 13px;
+        border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+        cursor: pointer; letter-spacing: .5px; transition: filter .1s, transform .05s;
+      }
+      .btn:active { transform: translateY(1px); }
+      .btn.primary { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #1a1209; }
+      .btn.ghost { background: #2a3040; color: var(--text); }
+      .btn:hover { filter: brightness(1.08); }
+      .btn:disabled { opacity: .45; cursor: default; filter: none; }
+
+      .row { display: flex; gap: 10px; }
+      .row > * { flex: 1; }
+
+      .code-line { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+      .code-chip {
+        font-family: monospace; font-size: 22px; letter-spacing: 3px; color: var(--accent2);
+        background: #11141b; padding: 6px 12px; border-radius: 8px; border: 1px solid #2c3344;
+      }
+      .players { list-style: none; margin: 0 0 8px; padding: 0; max-height: 260px; overflow-y: auto; }
+      .players li {
+        display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+        border-radius: 8px; background: #181c25; margin-bottom: 6px; font-size: 15px;
+      }
+      .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+      .badge { margin-left: auto; font-size: 11px; color: var(--accent2); letter-spacing: 1px; }
+      .hint { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.5; }
+      .standings { list-style: none; margin: 0 0 10px; padding: 0; }
+      .standings li {
+        display: flex; gap: 10px; padding: 9px 12px; border-radius: 8px; background: #181c25;
+        margin-bottom: 6px; font-size: 15px; align-items: center;
+      }
+      .standings .pos { font-weight: 800; color: var(--accent2); width: 28px; }
+      .standings .t { margin-left: auto; font-family: monospace; color: var(--muted); }
+      .err { color: #ff6b6b; font-size: 13px; margin-top: 10px; min-height: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+
+    <div id="overlay">
+      <!-- MENU -->
+      <div id="menu" class="panel">
+        <h1>RALLY</h1>
+        <p class="tagline">top-down drift racing · free-for-all</p>
+
+        <label for="name">Driver name</label>
+        <input id="name" type="text" maxlength="16" placeholder="Speedy" />
+
+        <label>Car colour</label>
+        <div class="colors" id="colors"></div>
+
+        <button class="btn primary" id="quickplay">QUICK PLAY</button>
+        <div class="row">
+          <input id="code" type="text" maxlength="8" placeholder="party code" />
+          <button class="btn ghost" id="joinCode" style="margin-top:12px">JOIN</button>
+        </div>
+        <button class="btn ghost" id="createPrivate">CREATE PRIVATE RACE</button>
+        <div class="err" id="menuErr"></div>
+        <p class="hint">
+          Drive: <b>↑/W</b> gas · <b>↓/S</b> brake · <b>←→/AD</b> steer ·
+          <b>SPACE</b> handbrake (drift!) · <b>M</b> mute.
+        </p>
+      </div>
+
+      <!-- LOBBY -->
+      <div id="lobby" class="panel wide hidden">
+        <div class="code-line">
+          <span style="color:var(--muted);font-size:13px">PARTY</span>
+          <span class="code-chip" id="lobbyCode">—</span>
+          <button class="btn ghost" id="copyLink" style="margin-top:0;flex:none;width:auto;padding:8px 14px">COPY LINK</button>
+        </div>
+        <label>Drivers on the grid</label>
+        <ul class="players" id="playerList"></ul>
+        <button class="btn primary" id="startBtn">START RACE</button>
+        <p class="hint" id="lobbyHint">Waiting for the host to start…</p>
+      </div>
+
+      <!-- RESULTS -->
+      <div id="results" class="panel wide hidden">
+        <h1 style="font-size:30px">RESULTS</h1>
+        <ul class="standings" id="standings"></ul>
+        <button class="btn primary" id="newRaceBtn">NEW RACE (new track)</button>
+        <p class="hint" id="resultsHint">Waiting for the host to start a new race…</p>
+      </div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

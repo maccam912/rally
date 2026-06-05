@@ -1,0 +1,14 @@
+node_modules
+dist
+.vite
+*.log
+.DS_Store
+.env
+.env.*
+.git
+.gitignore
+tests
+scripts
+README.md
+Dockerfile
+.dockerignore
