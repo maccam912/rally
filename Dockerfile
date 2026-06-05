@@ -24,6 +24,11 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm install -g tsx@4 && npm cache clean --force
 
 # Server reads source at runtime via tsx; client was built in the builder stage.
+# tsconfig.json is required at runtime so tsx/esbuild honors experimentalDecorators.
+# Colyseus's @type is a legacy decorator; without this esbuild emits TC39-standard
+# decorators and the schema crashes ("Cannot read properties of undefined
+# (reading 'constructor')") on startup.
+COPY tsconfig.json ./
 COPY src ./src
 COPY --from=builder /app/dist/client ./dist/client
 
